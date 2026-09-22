@@ -12,7 +12,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 pub use settings::{FontFamilyName, IconThemeName, ThemeAppearanceMode, ThemeName};
 use settings::{IntoGpui, RegisterSetting, Settings, SettingsContent};
-use std::sync::Arc;
+use std::{path::PathBuf, sync::Arc};
 use theme::{Appearance, DEFAULT_ICON_THEME_NAME, SyntaxTheme, Theme, UiDensity};
 
 const MIN_FONT_SIZE: Pixels = px(6.0);
@@ -31,6 +31,45 @@ pub fn appearance_to_mode(appearance: Appearance) -> ThemeAppearanceMode {
     match appearance {
         Appearance::Light => ThemeAppearanceMode::Light,
         Appearance::Dark => ThemeAppearanceMode::Dark,
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct BackgroundImageSettings {
+    pub path: Option<Arc<PathBuf>>,
+    pub opacity: f32,
+    pub theme_opacity: f32,
+    pub fit: settings::BackgroundImageFit,
+    pub position: settings::BackgroundImagePosition,
+}
+
+impl BackgroundImageSettings {
+    pub fn is_enabled(&self) -> bool {
+        self.path.is_some() && self.opacity > 0.0
+    }
+
+    pub fn object_fit(&self) -> gpui::ObjectFit {
+        match self.fit {
+            settings::BackgroundImageFit::Fill => gpui::ObjectFit::Fill,
+            settings::BackgroundImageFit::Contain => gpui::ObjectFit::Contain,
+            settings::BackgroundImageFit::Cover => gpui::ObjectFit::Cover,
+            settings::BackgroundImageFit::ScaleDown => gpui::ObjectFit::ScaleDown,
+            settings::BackgroundImageFit::None => gpui::ObjectFit::None,
+        }
+    }
+
+    pub fn object_position(&self) -> gpui::ObjectPosition {
+        match self.position {
+            settings::BackgroundImagePosition::TopLeft => gpui::ObjectPosition::TopLeft,
+            settings::BackgroundImagePosition::Top => gpui::ObjectPosition::Top,
+            settings::BackgroundImagePosition::TopRight => gpui::ObjectPosition::TopRight,
+            settings::BackgroundImagePosition::Left => gpui::ObjectPosition::Left,
+            settings::BackgroundImagePosition::Center => gpui::ObjectPosition::Center,
+            settings::BackgroundImagePosition::Right => gpui::ObjectPosition::Right,
+            settings::BackgroundImagePosition::BottomLeft => gpui::ObjectPosition::BottomLeft,
+            settings::BackgroundImagePosition::Bottom => gpui::ObjectPosition::Bottom,
+            settings::BackgroundImagePosition::BottomRight => gpui::ObjectPosition::BottomRight,
+        }
     }
 }
 
@@ -83,6 +122,9 @@ pub struct ThemeSettings {
     pub buffer_line_height: BufferLineHeight,
     /// The current theme selection.
     pub theme: ThemeSelection,
+    /// Wallpaper settings. The image is rendered by the workspace while this struct
+    /// also applies the requested opacity to major theme surfaces.
+    pub background_image: BackgroundImageSettings,
     /// Manual overrides for the active theme.
     ///
     /// Note: This setting is still experimental. See [this tracking issue](https://github.com/zed-industries/zed/issues/18078)
@@ -517,7 +559,40 @@ impl ThemeSettings {
             arc_theme = Arc::new(theme);
         }
 
+        if self.background_image.is_enabled() && self.background_image.theme_opacity < 1.0 {
+            let mut theme = (*arc_theme).clone();
+            Self::apply_background_image_surface_opacity(
+                &mut theme,
+                self.background_image.theme_opacity,
+            );
+            arc_theme = Arc::new(theme);
+        }
+
         arc_theme
+    }
+
+    fn apply_background_image_surface_opacity(base_theme: &mut Theme, opacity: f32) {
+        let opacity = opacity.clamp(0.0, 1.0);
+        let colors = &mut base_theme.styles.colors;
+
+        // Only large structural surfaces are faded. Interactive controls, selections,
+        // menus/dialogs (elevated surfaces), text, borders, and syntax colors retain
+        // their theme-defined contrast.
+        colors.background = colors.background.opacity(opacity);
+        colors.surface_background = colors.surface_background.opacity(opacity);
+        colors.status_bar_background = colors.status_bar_background.opacity(opacity);
+        colors.title_bar_background = colors.title_bar_background.opacity(opacity);
+        colors.title_bar_inactive_background =
+            colors.title_bar_inactive_background.opacity(opacity);
+        colors.toolbar_background = colors.toolbar_background.opacity(opacity);
+        colors.tab_bar_background = colors.tab_bar_background.opacity(opacity);
+        colors.tab_inactive_background = colors.tab_inactive_background.opacity(opacity);
+        colors.tab_active_background = colors.tab_active_background.opacity(opacity);
+        colors.panel_background = colors.panel_background.opacity(opacity);
+        colors.editor_background = colors.editor_background.opacity(opacity);
+        colors.editor_gutter_background = colors.editor_gutter_background.opacity(opacity);
+        colors.editor_subheader_background = colors.editor_subheader_background.opacity(opacity);
+        colors.terminal_background = colors.terminal_background.opacity(opacity);
     }
 
     fn modify_theme(base_theme: &mut Theme, theme_overrides: &settings::ThemeStyleContent) {
@@ -707,6 +782,7 @@ impl settings::Settings for ThemeSettings {
         let markdown_preview = settings_content.markdown_preview.as_ref();
         let theme_selection: ThemeSelection = content.theme.clone().unwrap().into();
         let icon_theme_selection: IconThemeSelection = content.icon_theme.clone().unwrap().into();
+        let background_image = content.background_image.as_ref();
         Self {
             ui_font_size: clamp_font_size(content.ui_font_size.unwrap().into_gpui()),
             ui_font: Font {
@@ -757,6 +833,27 @@ impl settings::Settings for ThemeSettings {
                 .and_then(|preview| preview.theme.clone())
                 .map(ThemeSelection::from),
             theme: theme_selection,
+            background_image: BackgroundImageSettings {
+                path: background_image
+                    .and_then(|settings| settings.path.as_ref())
+                    .map(|path| path.trim())
+                    .filter(|path| !path.is_empty())
+                    .map(|path| Arc::new(PathBuf::from(path))),
+                opacity: background_image
+                    .and_then(|settings| settings.opacity)
+                    .unwrap_or(1.0)
+                    .clamp(0.0, 1.0),
+                theme_opacity: background_image
+                    .and_then(|settings| settings.theme_opacity)
+                    .unwrap_or(0.82)
+                    .clamp(0.0, 1.0),
+                fit: background_image
+                    .and_then(|settings| settings.fit)
+                    .unwrap_or_default(),
+                position: background_image
+                    .and_then(|settings| settings.position)
+                    .unwrap_or_default(),
+            },
             experimental_theme_overrides: content.experimental_theme_overrides.clone(),
             theme_overrides: content.theme_overrides.clone(),
             icon_theme: icon_theme_selection,
@@ -786,6 +883,24 @@ mod tests {
             colors,
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn background_image_surface_opacity_fades_only_structural_surfaces() {
+        let mut theme = theme_with_colors(Default::default());
+        let original_background_alpha = theme.styles.colors.background.a;
+        let original_elevated_alpha = theme.styles.colors.elevated_surface_background.a;
+
+        ThemeSettings::apply_background_image_surface_opacity(&mut theme, 0.5);
+
+        assert_eq!(
+            theme.styles.colors.background.a,
+            original_background_alpha * 0.5
+        );
+        assert_eq!(
+            theme.styles.colors.elevated_surface_background.a,
+            original_elevated_alpha
+        );
     }
 
     #[test]

@@ -65,9 +65,9 @@ use gpui::{
     Bounds, ClipboardItem, Context, CursorStyle, Decorations, DragMoveEvent, Entity, EntityId,
     EventEmitter, FocusHandle, Focusable, Global, HitboxBehavior, Hsla, KeyContext, Keystroke,
     ManagedView, MouseButton, PathPromptOptions, Point, PromptLevel, Render, ResizeEdge, Size,
-    Stateful, Subscription, SystemWindowTabController, Task, TaskExt, Tiling, WeakEntity,
-    WindowBounds, WindowHandle, WindowId, WindowOptions, actions, canvas, point, relative, size,
-    transparent_black,
+    Stateful, StyledImage, Subscription, SystemWindowTabController, Task, TaskExt, Tiling,
+    WeakEntity, WindowBounds, WindowHandle, WindowId, WindowOptions, actions, canvas, img, point,
+    relative, size, transparent_black,
 };
 pub use history_manager::*;
 pub use item::{
@@ -9586,6 +9586,15 @@ impl Render for Workspace {
 
         let theme = cx.theme().clone();
         let colors = theme.colors();
+        let background_image = ThemeSettings::get_global(cx).background_image.clone();
+        let background_image_path = background_image
+            .path
+            .as_ref()
+            .filter(|_| background_image.is_enabled())
+            .map(|path| (**path).clone());
+        let background_image_opacity = background_image.opacity;
+        let background_image_fit = background_image.object_fit();
+        let background_image_position = background_image.object_position();
         let notification_entities = self
             .notifications
             .iter()
@@ -9613,6 +9622,16 @@ impl Render for Workspace {
             .items_start()
             .text_color(colors.text)
             .overflow_hidden()
+            .when_some(background_image_path, move |this, image_path| {
+                this.child(
+                    img(image_path)
+                        .absolute()
+                        .size_full()
+                        .object_fit(background_image_fit)
+                        .object_position(background_image_position)
+                        .opacity(background_image_opacity),
+                )
+            })
             // Expose the title bar as an ARIA toolbar so region navigation
             // (FocusNextPart) can reach the top bar's controls and assistive
             // technology announces it as a toolbar. The contained controls form

@@ -1687,7 +1687,16 @@
   "disable_ai": false,
   // Automatically update Zed. This setting may be ignored on Linux if
   // installed through a package manager.
-  "auto_update": true,
+  "auto_update": false,
+  // Custom wallpaper. Use forward slashes in Windows paths to avoid escaping backslashes.
+  // Example path: "C:/Users/you/Pictures/zed-wallpaper.png"
+  "background_image": {
+    "path": null,
+    "opacity": 1.0,
+    "theme_opacity": 0.82,
+    "fit": "cover",
+    "position": "center"
+  },
   // How to render LSP `textDocument/documentColor` colors in the editor.
   //
   // Possible values:

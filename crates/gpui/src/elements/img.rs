@@ -125,10 +125,49 @@ where
     }
 }
 
+/// Which point of a fitted image is anchored to the element bounds.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ObjectPosition {
+    TopLeft,
+    Top,
+    TopRight,
+    Left,
+    #[default]
+    Center,
+    Right,
+    BottomLeft,
+    Bottom,
+    BottomRight,
+}
+
+impl ObjectPosition {
+    fn apply(self, container: Bounds<Pixels>, mut fitted: Bounds<Pixels>) -> Bounds<Pixels> {
+        let left = container.origin.x;
+        let top = container.origin.y;
+        let center_x = container.origin.x + (container.size.width - fitted.size.width) / 2.0;
+        let center_y = container.origin.y + (container.size.height - fitted.size.height) / 2.0;
+        let right = container.origin.x + container.size.width - fitted.size.width;
+        let bottom = container.origin.y + container.size.height - fitted.size.height;
+
+        fitted.origin.x = match self {
+            Self::TopLeft | Self::Left | Self::BottomLeft => left,
+            Self::Top | Self::Center | Self::Bottom => center_x,
+            Self::TopRight | Self::Right | Self::BottomRight => right,
+        };
+        fitted.origin.y = match self {
+            Self::TopLeft | Self::Top | Self::TopRight => top,
+            Self::Left | Self::Center | Self::Right => center_y,
+            Self::BottomLeft | Self::Bottom | Self::BottomRight => bottom,
+        };
+        fitted
+    }
+}
+
 /// The style of an image element.
 pub struct ImageStyle {
     grayscale: bool,
     object_fit: ObjectFit,
+    object_position: ObjectPosition,
     loading: Option<Box<dyn Fn() -> AnyElement>>,
     fallback: Option<Box<dyn Fn() -> AnyElement>>,
 }
@@ -138,6 +177,7 @@ impl Default for ImageStyle {
         Self {
             grayscale: false,
             object_fit: ObjectFit::Contain,
+            object_position: ObjectPosition::Center,
             loading: None,
             fallback: None,
         }
@@ -158,6 +198,12 @@ pub trait StyledImage: Sized {
     /// Set the object fit for the image.
     fn object_fit(mut self, object_fit: ObjectFit) -> Self {
         self.image_style().object_fit = object_fit;
+        self
+    }
+
+    /// Set the anchor position used after object fitting.
+    fn object_position(mut self, object_position: ObjectPosition) -> Self {
+        self.image_style().object_position = object_position;
         self
     }
 
@@ -487,10 +533,12 @@ impl Element for Img {
                     if data.frame_count() == 0 {
                         return;
                     }
-                    let new_bounds = self
-                        .style
-                        .object_fit
-                        .get_bounds(bounds, data.size(layout_state.frame_index));
+                    let new_bounds = self.style.object_position.apply(
+                        bounds,
+                        self.style
+                            .object_fit
+                            .get_bounds(bounds, data.size(layout_state.frame_index)),
+                    );
                     let corner_radii = style.corner_radii.to_pixels(window.rem_size());
                     window
                         .paint_image(
@@ -895,6 +943,35 @@ mod tests {
                 rendered_tile_bounds.size.height.0,
             ),
             (50, 0, 100, 100),
+        );
+    }
+
+    #[gpui::test]
+    fn image_object_position_top_left_changes_cover_anchor(cx: &mut TestAppContext) {
+        let window = cx.add_empty_window();
+        let image = test_image_with_size(200, 100);
+
+        window.draw(point(px(0.), px(0.)), size(px(100.), px(100.)), |_, _| {
+            img(ImageSource::Render(image))
+                .size_full()
+                .object_fit(ObjectFit::Cover)
+                .object_position(ObjectPosition::TopLeft)
+                .into_any_element()
+        });
+
+        let (tile_bounds, scale_factor) = window.update(|window, _| {
+            let sprite = window
+                .rendered_frame
+                .scene
+                .polychrome_sprites
+                .last()
+                .expect("positioned cover image should paint a sprite");
+            (sprite.tile.bounds, window.scale_factor())
+        });
+
+        assert_eq!(
+            tile_bounds.origin,
+            point(px(0.).scale(scale_factor), px(0.).scale(scale_factor)),
         );
     }
 

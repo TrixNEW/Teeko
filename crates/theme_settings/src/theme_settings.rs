@@ -99,6 +99,7 @@ pub fn init(themes_to_load: LoadThemes, cx: &mut App) {
     let mut prev_theme_overrides = (
         settings.experimental_theme_overrides.clone(),
         settings.theme_overrides.clone(),
+        settings.background_image.clone(),
     );
 
     cx.observe_global::<SettingsStore>(move |cx| {
@@ -115,6 +116,7 @@ pub fn init(themes_to_load: LoadThemes, cx: &mut App) {
         let theme_overrides = (
             settings.experimental_theme_overrides.clone(),
             settings.theme_overrides.clone(),
+            settings.background_image.clone(),
         );
 
         if buffer_font_size_settings != prev_buffer_font_size_settings {

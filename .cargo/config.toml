@@ -22,3 +22,4 @@ rustflags = ["-C", "link-arg=-fuse-ld=lld"]
 
 [env]
 MACOSX_DEPLOYMENT_TARGET = "10.15.7"
+ZED_UPDATE_EXPLANATION = "This is a custom Zed wallpaper build. Update it from your fork's GitHub Releases."

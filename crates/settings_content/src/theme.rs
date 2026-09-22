@@ -173,6 +173,54 @@ impl TryFrom<&ThemeColor> for gpui::Rgba {
 
 /// Settings for rendering text in UI and text buffers.
 
+#[derive(
+    Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema, MergeFrom,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum BackgroundImageFit {
+    Fill,
+    Contain,
+    #[default]
+    Cover,
+    ScaleDown,
+    None,
+}
+
+#[derive(
+    Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema, MergeFrom,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum BackgroundImagePosition {
+    TopLeft,
+    Top,
+    TopRight,
+    Left,
+    #[default]
+    Center,
+    Right,
+    BottomLeft,
+    Bottom,
+    BottomRight,
+}
+
+#[with_fallible_options]
+#[derive(Clone, PartialEq, Debug, Default, Serialize, Deserialize, JsonSchema, MergeFrom)]
+pub struct BackgroundImageSettingsContent {
+    /// Local image path. Forward slashes work on Windows and avoid JSON escaping.
+    pub path: Option<String>,
+    /// Opacity of the wallpaper itself, from 0.0 to 1.0.
+    #[schemars(range(min = 0.0, max = 1.0))]
+    pub opacity: Option<f32>,
+    /// Opacity multiplier for Zed's major theme surfaces, from 0.0 to 1.0.
+    /// Lower values reveal more of the wallpaper while preserving the active theme's color.
+    #[schemars(range(min = 0.0, max = 1.0))]
+    pub theme_opacity: Option<f32>,
+    /// How the image is fitted to the Zed window.
+    pub fit: Option<BackgroundImageFit>,
+    /// Which part of the image is anchored when fitting/cropping.
+    pub position: Option<BackgroundImagePosition>,
+}
+
 #[with_fallible_options]
 #[derive(Clone, PartialEq, Debug, Default, Serialize, Deserialize, JsonSchema, MergeFrom)]
 pub struct ThemeSettingsContent {
@@ -228,6 +276,9 @@ pub struct ThemeSettingsContent {
     /// How much to fade out unused code.
     #[schemars(range(min = 0.0, max = 0.9))]
     pub unnecessary_code_fade: Option<CodeFade>,
+
+    /// Optional wallpaper rendered behind the Zed UI.
+    pub background_image: Option<BackgroundImageSettingsContent>,
 
     /// EXPERIMENTAL: Overrides for the current theme.
     ///
