@@ -1,0 +1,133 @@
+name: Teeko - build and release
+
+on:
+  push:
+    branches: ['**']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: '0'
+  CARGO_BUILD_JOBS: '2'
+  CARGO_PROFILE_RELEASE_DEBUG: '0'
+  CARGO_PROFILE_RELEASE_LTO: 'false'
+  CARGO_PROFILE_RELEASE_CODEGEN_UNITS: '16'
+  ZED_UPDATE_EXPLANATION: 'Download updates from this Teeko fork on GitHub Releases.'
+
+jobs:
+  build:
+    name: Build ${{ matrix.platform }} x64
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux
+            runner: ubuntu-24.04
+          - platform: windows
+            runner: windows-2022
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 360
+    steps:
+      - name: Enable Windows long paths
+        if: runner.os == 'Windows'
+        run: git config --global core.longpaths true
+      - uses: actions/checkout@v4
+      - name: Configure MSVC
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          bash script/linux
+          sudo apt-get install -y pkg-config libegl1-mesa-dev
+      - name: Install repository Rust toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          toolchain=$(sed -n 's/^channel = "\([^"]*\)"/\1/p' rust-toolchain.toml)
+          test -n "$toolchain"
+          rustup toolchain install "$toolchain" --profile minimal
+          rustup show active-toolchain
+          rustc --version
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: teeko-${{ matrix.platform }}
+          cache-on-failure: true
+      - name: Download WASI SDK
+        shell: bash
+        run: bash script/download-wasi-sdk
+      - name: Build Linux bundle
+        if: runner.os == 'Linux'
+        env:
+          CC: clang
+          CXX: clang++
+        run: |
+          bash script/bundle-linux
+          mkdir -p dist
+          cp target/release/zed-linux-x86_64.tar.gz dist/Teeko-linux-x86_64.tar.gz
+          cp target/zed-remote-server-linux-x86_64.gz dist/Teeko-remote-server-linux-x86_64.gz
+      - name: Generate Windows licenses
+        if: runner.os == 'Windows'
+        shell: bash
+        run: bash script/generate-licenses
+      - name: Build Windows portable bundle
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./script/teeko/build-windows.ps1
+      - name: Upload packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: teeko-${{ matrix.platform }}
+          path: dist/*
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+
+  release:
+    name: Publish commit release
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: teeko-*
+          merge-multiple: true
+          path: dist
+      - name: Publish packages and checksums
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          COMMIT_SHA: ${{ github.sha }}
+          SOURCE_BRANCH: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd dist
+          test -s Teeko-linux-x86_64.tar.gz
+          test -s Teeko-windows-x86_64.zip
+          sha256sum Teeko-* > SHA256SUMS.txt
+          tag="build-${GITHUB_RUN_NUMBER}-${COMMIT_SHA:0:12}-${GITHUB_RUN_ATTEMPT}"
+          notes="$RUNNER_TEMP/teeko-release-notes.md"
+          cat > "$notes" <<EOF_NOTES
+          Automated Teeko build from commit $COMMIT_SHA.
+          Branch: $SOURCE_BRANCH
+
+          - Windows x64: extract Teeko-windows-x86_64.zip and launch Zed.exe.
+          - Linux x64: extract Teeko-linux-x86_64.tar.gz and run zed-dev.app/bin/zed (the directory suffix follows RELEASE_CHANNEL).
+          - SHA256SUMS.txt contains checksums for all packages.
+
+          Windows packages are unsigned. Linux packages are built on Ubuntu 24.04 and need a compatible glibc-based desktop with Vulkan drivers.
+          Internal executable names remain Zed for compatibility with this fork.
+          EOF_NOTES
+          gh release create "$tag" ./* \
+            --target "$COMMIT_SHA" \
+            --title "Teeko build ${GITHUB_RUN_NUMBER} (${COMMIT_SHA:0:12})" \
+            --notes-file "$notes" --prerelease --latest=false
