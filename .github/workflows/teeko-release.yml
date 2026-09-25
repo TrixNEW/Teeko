@@ -74,8 +74,8 @@ jobs:
           cp target/zed-remote-server-linux-x86_64.gz dist/Teeko-remote-server-linux-x86_64.gz
       - name: Generate Windows licenses
         if: runner.os == 'Windows'
-        shell: bash
-        run: bash script/generate-licenses
+        shell: pwsh
+        run: ./script/generate-licenses.ps1
       - name: Build Windows portable bundle
         if: runner.os == 'Windows'
         shell: pwsh
